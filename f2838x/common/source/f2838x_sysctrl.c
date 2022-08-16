@@ -162,7 +162,7 @@ void InitSysCtrl(void)
 
     EALLOW;
 
-
+    // ADC_X Clock En
     CpuSysRegs.PCLKCR13.bit.ADC_A = 1;
     CpuSysRegs.PCLKCR13.bit.ADC_B = 1;
     CpuSysRegs.PCLKCR13.bit.ADC_C = 1;

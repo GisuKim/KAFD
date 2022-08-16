@@ -50,7 +50,7 @@ extern "C" {
 //
 // Defines
 //
-
+#define _DUAL_HEADERS 0
 //
 //definitions for specifying an ADC
 //

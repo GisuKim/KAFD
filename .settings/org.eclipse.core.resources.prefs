@@ -1,4 +1,8 @@
 eclipse.preferences.version=1
+encoding//Debug/HAL/Source/subdir_rules.mk=UTF-8
+encoding//Debug/HAL/Source/subdir_vars.mk=UTF-8
+encoding//Debug/UTIL/Source/subdir_rules.mk=UTF-8
+encoding//Debug/UTIL/Source/subdir_vars.mk=UTF-8
 encoding//Debug/driverlib/ccs/Debug/subdir_rules.mk=UTF-8
 encoding//Debug/driverlib/ccs/Debug/subdir_vars.mk=UTF-8
 encoding//Debug/driverlib/ccs/Release/subdir_rules.mk=UTF-8
@@ -28,3 +32,4 @@ encoding//Debug/objects.mk=UTF-8
 encoding//Debug/sources.mk=UTF-8
 encoding//Debug/subdir_rules.mk=UTF-8
 encoding//Debug/subdir_vars.mk=UTF-8
+encoding//UTIL/Source/UTIL_CAN_Packet.c=UTF-8

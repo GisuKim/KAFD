@@ -285,6 +285,7 @@ typedef long double     						float64;
 typedef struct { Uint32 low32; Uint32 high32; } Uint64;
 typedef struct { int32  low32; int32  high32; } int64;
 #else // __TMS320C28XX__
+typedef unsigned char       Uint8;
 typedef int             	int16;
 typedef long            	int32;
 typedef long long			int64;
