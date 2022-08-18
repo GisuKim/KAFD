@@ -490,7 +490,7 @@ interrupt void sciaTXFIFOISR(void)
 interrupt void adca1_isr(void)
 {
 
-    FAULT_LED_TOGGLE();
+//    FAULT_LED_TOGGLE();
     resultsIndex++;
     AdcaResults[resultsIndex][0] = AdcaResultRegs.ADCRESULT0;
     AdcaResults[resultsIndex][1] = AdcaResultRegs.ADCRESULT1;
@@ -551,6 +551,8 @@ interrupt void CanaISR(void)
     {
         // 수신된 데이터 확인
         CAN_readMessage(CANA_BASE, RX_MSG_OBJ_ID, rxMsgDataA);
+
+
 
         // CAN 메시지 오브젝트 인터럽트 클리어
         CAN_clearInterruptStatus(CANA_BASE, RX_MSG_OBJ_ID);

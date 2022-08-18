@@ -104,35 +104,35 @@ void ConversionCanFrameToChannel_IVT_Result(stCanMsgObject *i_pstCanMsg_Handle)
 	//Message Object ID Number[0]
 	//IVT-S Result
 	//CAN ID 0x52x
-	Get_Data16_Uint_INTEL( (i_pstCanMsg_Handle+CAN_RX_COMP_STATUS)->m_unDataField.m_lData64Bit	,&	g_stIVT_Result_MuxID	            );
-	Get_Data16_Uint_INTEL( (i_pstCanMsg_Handle+CAN_RX_COMP_STATUS)->m_unDataField.m_lData64Bit	,&	g_stIVT_Result_IVT_MsgCount         );
-	Get_Data16_Uint_INTEL( (i_pstCanMsg_Handle+CAN_RX_COMP_STATUS)->m_unDataField.m_lData64Bit	,&	g_stIVT_Result_IVT_Result_state	    );
+	Get_Data16_Uint_INTEL( i_pstCanMsg_Handle->m_unDataField.m_lData64Bit	,&	g_stIVT_Result_MuxID	            );
+	Get_Data16_Uint_INTEL( i_pstCanMsg_Handle->m_unDataField.m_lData64Bit	,&	g_stIVT_Result_IVT_MsgCount         );
+	Get_Data16_Uint_INTEL( i_pstCanMsg_Handle->m_unDataField.m_lData64Bit	,&	g_stIVT_Result_IVT_Result_state	    );
 
 	switch(g_stIVT_Result_MuxID.m_uVal)
 	{
 	case 0x00:
-	    Get_Data32_Float_INTEL( (i_pstCanMsg_Handle+CAN_RX_COMP_STATUS)->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_Current    );
+	    Get_Data32_Float_INTEL( i_pstCanMsg_Handle->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_Current    );
 	    break;
     case 0x01:
-        Get_Data32_Float_INTEL( (i_pstCanMsg_Handle+CAN_RX_COMP_STATUS)->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_U1    );
+        Get_Data32_Float_INTEL( i_pstCanMsg_Handle->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_U1    );
         break;
     case 0x02:
-        Get_Data32_Float_INTEL( (i_pstCanMsg_Handle+CAN_RX_COMP_STATUS)->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_U2    );
+        Get_Data32_Float_INTEL( i_pstCanMsg_Handle->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_U2    );
         break;
     case 0x03:
-        Get_Data32_Float_INTEL( (i_pstCanMsg_Handle+CAN_RX_COMP_STATUS)->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_U3    );
+        Get_Data32_Float_INTEL( i_pstCanMsg_Handle->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_U3    );
         break;
     case 0x04:
-        Get_Data32_Float_INTEL( (i_pstCanMsg_Handle+CAN_RX_COMP_STATUS)->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_T    );
+        Get_Data32_Float_INTEL( i_pstCanMsg_Handle->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_T    );
         break;
     case 0x05:
-        Get_Data32_Float_INTEL( (i_pstCanMsg_Handle+CAN_RX_COMP_STATUS)->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_W    );
+        Get_Data32_Float_INTEL( i_pstCanMsg_Handle->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_W    );
         break;
     case 0x06:
-        Get_Data32_Float_INTEL( (i_pstCanMsg_Handle+CAN_RX_COMP_STATUS)->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_As    );
+        Get_Data32_Float_INTEL( i_pstCanMsg_Handle->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_As    );
         break;
     case 0x07:
-        Get_Data32_Float_INTEL( (i_pstCanMsg_Handle+CAN_RX_COMP_STATUS)->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_Wh    );
+        Get_Data32_Float_INTEL( i_pstCanMsg_Handle->m_unDataField.m_lData64Bit  ,&  g_stIVT_Result_IVT_Value_Wh    );
         break;
     default:
         break;
@@ -177,6 +177,7 @@ Uint64 Set_Data16_Uint_INTEL(CAN_BIT_DEF *i_pstConv_Data)
 
 	return Result;
 }
+
 
 Uint64 Set_Data16_Float_INTEL(CAN_BIT_DEF *i_pstConv_Data)
 {
@@ -265,3 +266,20 @@ void Get_Data32_Float_INTEL(Uint64 i_uData, CAN_BIT_DEF *i_pstConv_Data)
     }
 }
 
+//void GetTXSensorData(stCanMsgObject *i_pstCanMsg_Handle)
+//{
+//    Uint16 i;
+//    Uint16 uData_Size;
+//    Uint16 uTest_Read_Buff[QUEUE_ARRAY_SIZE];
+//
+//    for(i=0; i<QUEUE_ARRAY_SIZE; i++)
+//    {
+//        uTest_Read_Buff[i] =0;
+//    }
+////Get from Queue to Struct Data
+//    uData_Size = sizeof((*i_pstADCData_out));
+//    g_stTXDataQueue.Pop(&g_stTXDataQueue, &uTest_Read_Buff);
+//    memcpy(&(*i_pstADCData_out), &uTest_Read_Buff, uData_Size);
+//
+//    uData_Size=0;
+//}
