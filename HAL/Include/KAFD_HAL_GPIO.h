@@ -12,6 +12,11 @@
 #include "driverlib.h"
 
 
+#define     FAULT_LED_OFF()                  (GpioDataRegs.GPASET.bit.GPIO5 = 1)
+#define     FAULT_LED_ON()                   (GpioDataRegs.GPACLEAR.bit.GPIO5 = 1)
+#define     FAULT_LED_TOGGLE()                   (GpioDataRegs.GPATOGGLE.bit.GPIO5 = 1)
+
+
 void InitAFDGPIO(void);
 
 

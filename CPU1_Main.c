@@ -11,22 +11,45 @@
 #include "driverlib.h"
 #include <HAL/Include/KAFD_HAL_CAN.h>
 #include <HAL/Include/KAFD_HAL_GPIO.h>
-
+#include <HAL/Include/KAFD_HAL_ADC.h>
+#include <HAL/Include/KAFD_HAL_PWM.h>
+#include <UTIL/include/UTIL_Sensor_Monitor.h>
+#include "KAFD_CPU1_Setting.h"
 //
 // Function Prototypes
 //
-void ConfigureADC(void);
-void ConfigureEPWM(void);
-void SetupADCEpwm(void);
+
+
+
+
+#define mSec1                               6000        // 1.0 mS
+#define mSec5                               30000       // 5.0 mS
+
+
 void initSCIAFIFO(void);
 void initSCIAFIFO(void);
 void error(void);
+
+// State Machine function prototypes
+//------------------------------------
+// Alpha states
+void Task_GroupA_main(void);    //state A0
+void Task_GroupB_main(void);    //state B0
+void Task_GroupA1(void);        //state A1  // A branch states
+void Task_GroupB1(void);        //state B1  // B branch states
+void Task_GroupB2(void);        //state B2  // B branch states
+
+// Variable declarations
+void (*Alpha_State_Ptr)(void);  // Base States pointer
+void (*A_Task_Ptr)(void);       // State pointer A branch
+void (*B_Task_Ptr)(void);       // State pointer B branch
 
 interrupt void adca1_isr(void);
 interrupt void CanaISR(void);
 interrupt void CanbISR(void);
 interrupt void sciaRXFIFOISR(void);
 interrupt void sciaTXFIFOISR(void);
+interrupt void ISR_CpuTimer0(void);
 
 
 //
@@ -54,11 +77,18 @@ volatile uint32_t           errorFlag = 0;
 uint16_t                    rxMsgDataA[MSG_DATA_A_LENGTH];
 uint16_t                    rxMsgDataB[MSG_DATA_B_LENGTH];
 
+Uint16 g_auVTimer0[4];                                  // Virtual Timers slaved off CPU Timer 0 (A events)
+Uint16 g_auVTimer1[4];
 
+Uint16 g_uBackTicker = 0;                           // Count in ISR
+
+Uint16 g_uTXQueueCounter = 0;
+ADC_DATA_STRUCT_DEF g_stADCData;
+ADC_DATA_STRUCT_DEF g_stTXData_out;
 //
 // Send data for SCI-A
 //
-uint16_t sDataA[2];
+uint16_t sDataA[8];
 
 //
 // Received data for SCI-A
@@ -119,10 +149,8 @@ void main(void)
     //
     // Enable Global Interrupt (INTM) and realtime interrupt (DBGM)
     //
-    IER |= M_INT1; //Enable group 1 interrupts
 
-    EINT;
-    ERTM;
+
 
 
 //
@@ -137,16 +165,38 @@ void main(void)
     Interrupt_register(INT_CANB0, &CanbISR);    // INT_CANB0 인터럽트 벡터에 CanbISR( ) 함수 연결
     Interrupt_register(INT_SCIA_RX, &sciaRXFIFOISR);
     Interrupt_register(INT_SCIA_TX, &sciaTXFIFOISR);
+    Interrupt_register(INT_TIMER0, &ISR_CpuTimer0);
 
     initSCIAFIFO();
 
+    CpuTimer1Regs.PRD.all =  mSec1;     // task A
+    CpuTimer2Regs.PRD.all =  mSec5;     // task B
 
-    for(i = 0; i < 2; i++)
-    {
-        sDataA[i] = i;
-    }
+    // Tasks State-machine init
+    Alpha_State_Ptr = &Task_GroupA_main;
+    A_Task_Ptr = &Task_GroupA1;             //check - 2
+    B_Task_Ptr = &Task_GroupB1;
 
-    rDataPointA = sDataA[0];
+
+    InitCpuTimers();
+//  ConfigCpuTimer(&CpuTimer1, 150, 20000);                                     // 50Hz for  1553b  communication
+    ConfigCpuTimer(&CpuTimer1, 200, 10000);                                     // 100Hz for  1553b  communication
+
+    ConfigCpuTimer(&CpuTimer0, 200, 1000/ISR_FREQUENCY);                        // 1000/1 = 1[Khz]
+    ConfigCpuTimer(&CpuTimer2, 200, 1000/(ISR_FREQUENCY*2));                    // 2khz
+
+    StartCpuTimer1();           //100[hz] - 1553B
+
+    StartCpuTimer0();           //1[Khz] - ADC, RDC
+    StartCpuTimer2();           //2[Khz] - CSU, CAN
+
+
+//    for(i = 0; i < 2; i++)
+//    {
+//        sDataA[i] = i;
+//    }
+
+  //  rDataPointA = sDataA[0];
 
     //
     // Enable the CAN-A interrupt signal
@@ -155,38 +205,13 @@ void main(void)
     Interrupt_enable(INT_CANB0);
     Interrupt_enable(INT_SCIA_RX);
     Interrupt_enable(INT_SCIA_TX);
+    Interrupt_enable(INT_TIMER0);
 
+    IER |= M_INT1 | M_INT9; //Enable group 1 interrupts
     CAN_enableGlobalInterrupt(CANA_BASE, CAN_GLOBAL_INT_CANINT0);
     CAN_enableGlobalInterrupt(CANB_BASE, CAN_GLOBAL_INT_CANINT0);
 
     InitCanMessageBox();
-    // CAN 메시지 전송에 사용할 송신 메시지 오브젝트 초기화
-    // CAN Module:                  A
-    // Message Object ID Number:    TX_MSG_OBJ_ID
-    // Message Identifier:          0x95555555
-    // Message Frame:               Extended
-    // Message Type:                Transmit
-    // Message ID Mask:             0x0
-    // Message Object Flags:        None
-    // Message Data Length:         4 Bytes (Note that DLC field is a "don't care" for a Receive mailbox
-    CAN_setupMessageObject( CANA_BASE, TX_MSG_OBJ_ID, 0x523,
-                            CAN_MSG_FRAME_STD, CAN_MSG_OBJ_TYPE_RX, 0,
-                            CAN_MSG_OBJ_RX_INT_ENABLE, MSG_DATA_A_LENGTH );
-//CAN_MSG_OBJ_USE_ID_FILTER
-    // CAN 메시지 수신에 사용할 수신 메시지 오브젝트 초기화
-    // CAN Module:                  B
-    // Message Object ID Number:    RX_MSG_OBJ_ID
-    // Message Identifier:          0x95555555
-    // Message Frame:               Extended
-    // Message Type:                Receive
-    // Message ID Mask:             0x0
-    // Message Object Flags:        Receive Interrupt
-    // Message Data Length:         4 Bytes
-
-    CAN_setupMessageObject( CANB_BASE, RX_MSG_OBJ_ID, 0x3c2,
-                            CAN_MSG_FRAME_STD, CAN_MSG_OBJ_TYPE_RX, 0,
-                            CAN_MSG_OBJ_RX_INT_ENABLE, MSG_DATA_B_LENGTH );
-
 
     CAN_startModule(CANA_BASE);
     CAN_startModule(CANB_BASE);
@@ -208,6 +233,15 @@ void main(void)
     resultsIndex = 0;
     bufferFull = 0;
 
+    g_auVTimer0[0] = 0;
+    g_auVTimer1[0] = 0;
+    g_auVTimer1[1] = 0;
+
+
+    EINT;
+    ERTM;
+
+
 //
 // Enable PIE interrupt
 //
@@ -219,47 +253,138 @@ void main(void)
     EALLOW;
     CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 1;
 
+
+    EPwm1Regs.ETSEL.bit.SOCAEN = 1;  //enable SOCA
+    EPwm1Regs.TBCTL.bit.CTRMODE = 0; //unfreeze, and enter up count mode
 //
 // Take conversions indefinitely in loop
 //
     do
     {
+        g_uBackTicker++;
 
-        //
-        // Start ePWM
-        //
-        EPwm1Regs.ETSEL.bit.SOCAEN = 1;  //enable SOCA
-        EPwm1Regs.TBCTL.bit.CTRMODE = 0; //unfreeze, and enter up count mode
+//      g_uSychPulse = READ_SYNCPULSE;
 
-        //
-        // Wait while ePWM causes ADC conversions, which then cause interrupts,
-        // which fill the results buffer, eventually setting the bufferFull
-        // flag
-        //
-        while(!bufferFull);
-        bufferFull = 0; //clear the buffer full flag
-
-        //
-        // Stop ePWM
-        //
-        EPwm1Regs.ETSEL.bit.SOCAEN = 0;  //disable SOCA
-        EPwm1Regs.TBCTL.bit.CTRMODE = 3; //freeze counter
-
-        //
-        // At this point, AdcaResults[] contains a sequence of conversions
-        // from the selected channel
-        //
-
-        //
-        // Software breakpoint, hit run again to get updated conversions
-        //
-
-//        asm("   ESTOP0");
+        // State machine entry & exit point
+        (*Alpha_State_Ptr)();   // jump to an Alpha state (A0,B0,...)
     } while(1);
 }
 
 
+///////////////////////////////////////////////////////////////////////////////////
+//-------------------------------------------------------------------------------//
+//--------------------------------- FRAMEWORK -----------------------------------//
+//-------------------------------------------------------------------------------//
+///////////////////////////////////////////////////////////////////////////////////
 
+void Task_GroupA_main(void)                 // loop rate synchronizer for A-tasks
+{
+    if(CpuTimer1Regs.TCR.bit.TIF == 1)
+    {
+        g_auVTimer0[0]++;                       // virtual timer 0, instance 0 (spare)
+        CpuTimer1Regs.TCR.bit.TIF = 1;      // clear flag
+        (*A_Task_Ptr)();                    // jump to an A Task
+    }
+    Alpha_State_Ptr = &Task_GroupB_main;    // Comment out to allow only A tasks
+}
+
+void Task_GroupB_main(void)                 // loop rate synchronizer for B-tasks
+{
+    if(CpuTimer2Regs.TCR.bit.TIF == 1)
+    {
+        g_auVTimer1[0]++;                       // virtual timer 1, instance 0 (spare)
+        CpuTimer2Regs.TCR.bit.TIF = 1;      // clear flag
+        (*B_Task_Ptr)();                    // jump to a B Task
+    }
+    Alpha_State_Ptr = &Task_GroupA_main;    // Allow C state tasks
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////
+//-------------------------------------------------------------------------------//
+//--------------------------------- OPERATING -----------------------------------//
+//-------------------------------------------------------------------------------//
+//////////////////////////
+/////////////////////////////////////////////////////////
+void Task_GroupA1(void)         // (executed in every 20 msec)
+{
+
+    A_Task_Ptr = &Task_GroupA1;
+
+}
+void Task_GroupB1(void)         // (executed in every 1msec)
+{
+    g_auVTimer1[1]++;
+
+    AFD_SensorMain();
+
+//    DSP_SCI_TXEN_ON();
+//  scia_xmit(0x5a);
+//    CSU_Sensor_main();
+//    CSU_StateManagement_main();
+
+
+
+//    DSP_SCI_TXEN_OFF();
+
+
+    B_Task_Ptr = &Task_GroupB2;
+}
+void Task_GroupB2(void) //  (executed in every 2msec)
+{
+    g_auVTimer1[2]++;
+    if((g_auVTimer1[2] & 0x0001) == 0x0)
+    {
+ //       CSU_TJ_COMMUNICATION_main();
+
+        //FAULT_LED_TOGGLE(); //2ms
+
+    }
+    B_Task_Ptr = &Task_GroupB1;
+}
+
+
+Uint8 g_SensTXCNT = 0;
+Uint8 g_failCNT = 0;
+interrupt void ISR_CpuTimer0(void) // 1msec
+{
+    resultsIndex=0;
+    CpuTimer0.InterruptCount++;
+
+
+    g_uTXQueueCounter = GetTXSensorDataCount();
+    while(GetTXSensorDataCount())
+    {
+        if(SciaRegs.SCICTL2.bit.TXEMPTY)
+        {
+            g_failCNT=0;
+            GetTXSensorData(&g_stTXData_out);
+
+            g_SensTXCNT++;
+            sDataA[0]=0x00fe;
+            sDataA[1]=0x0008;
+            sDataA[2]=0x00ff & (g_stTXData_out.m_uHFCT >> 8);
+            sDataA[3]=0x00ff & g_stTXData_out.m_uHFCT;
+            sDataA[4]=0x00ff & (g_stTXData_out.m_uShunt >> 8);
+            sDataA[5]=0x00ff & g_stTXData_out.m_uShunt;
+            sDataA[6]=0x00ff & g_SensTXCNT;
+            sDataA[7]=0x00a5;
+
+        }
+        else
+        {
+            g_failCNT++;
+        }
+    }
+
+
+
+
+
+    // Acknowledge this interrupt to receive more interrupts from group 1
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
+
+}
 //
 // initSCIAFIFO - Configure SCIA FIFO
 //
@@ -288,7 +413,7 @@ void initSCIAFIFO()
     // The receive FIFO generates an interrupt when FIFO status
     // bits are greater than equal to 2 out of 16 words
     //
-    SCI_setFIFOInterruptLevel(SCIA_BASE, SCI_FIFO_TX2, SCI_FIFO_RX2);
+    SCI_setFIFOInterruptLevel(SCIA_BASE, SCI_FIFO_TX7, SCI_FIFO_RX2);
     SCI_performSoftwareReset(SCIA_BASE);
 
     SCI_resetTxFIFO(SCIA_BASE);
@@ -296,99 +421,6 @@ void initSCIAFIFO()
 }
 
 
-
-//
-// ConfigureADC - Write ADC configurations and power up the ADC for both
-//                ADC A and ADC B
-//
-void ConfigureADC(void)
-{
-    EALLOW;
-
-    //
-    // Write configurations
-    //
-    AdcaRegs.ADCCTL2.bit.PRESCALE = 6; //set ADCCLK divider to /4
-    AdcSetMode(ADC_ADCA, ADC_RESOLUTION_12BIT, ADC_SIGNALMODE_SINGLE);
-
-    //
-    // Set pulse positions to late
-    //
-    AdcaRegs.ADCCTL1.bit.INTPULSEPOS = 1;
-
-    //
-    // Power up the ADC
-    //
-    AdcaRegs.ADCCTL1.bit.ADCPWDNZ = 1;
-
-    //
-    // Delay for 1ms to allow ADC time to power up
-    //
-    DELAY_US(1000);
-
-    EDIS;
-}
-
-//
-// ConfigureEPWM - Configure EPWM SOC and compare values
-//
-void ConfigureEPWM(void)
-{
-    EALLOW;
-    // Assumes ePWM clock is already enabled
-    EPwm1Regs.ETSEL.bit.SOCAEN    = 0;    // Disable SOC on A group
-    EPwm1Regs.ETSEL.bit.SOCASEL    = 4;   // Select SOC on up-count
-    EPwm1Regs.ETPS.bit.SOCAPRD = 1;       // Generate pulse on 1st event
-    EPwm1Regs.CMPA.bit.CMPA = 0x0800;     // Set compare A value to 2048 counts
-    EPwm1Regs.TBPRD = 0x1000;             // Set period to 4096 counts
-    EPwm1Regs.TBCTL.bit.CTRMODE = 3;      // freeze counter
-    EDIS;
-}
-
-//
-// SetupADCEpwm - Setup ADC EPWM acquisition window
-//
-void SetupADCEpwm(void)
-{
-    Uint16 acqps;
-
-    //
-    // Determine minimum acquisition window (in SYSCLKS) based on resolution
-    //
-    if(ADC_RESOLUTION_12BIT == AdcaRegs.ADCCTL2.bit.RESOLUTION)
-    {
-        acqps = 14; //75ns
-    }
-    else //resolution is 16-bit
-    {
-        acqps = 63; //320ns
-    }
-
-    //
-    // Select the channels to convert and end of conversion flag
-    //
-    EALLOW;
-    AdcaRegs.ADCSOC0CTL.bit.CHSEL = 0;  //SOC0 will convert pin A0
-    AdcaRegs.ADCSOC0CTL.bit.ACQPS = acqps; //sample window is 100 SYSCLK cycles
-    AdcaRegs.ADCSOC0CTL.bit.TRIGSEL = 5; //trigger on ePWM1 SOCA/C
-
-    AdcaRegs.ADCSOC1CTL.bit.CHSEL = 1;  //SOC1 will convert pin A1
-    AdcaRegs.ADCSOC1CTL.bit.ACQPS = acqps; //sample window is 100 SYSCLK cycles
-    AdcaRegs.ADCSOC1CTL.bit.TRIGSEL = 5; //trigger on ePWM1 SOCA/C
-
-    AdcaRegs.ADCSOC2CTL.bit.CHSEL = 2;  //SOC2 will convert pin A2
-    AdcaRegs.ADCSOC2CTL.bit.ACQPS = acqps; //sample window is 100 SYSCLK cycles
-    AdcaRegs.ADCSOC2CTL.bit.TRIGSEL = 5; //trigger on ePWM1 SOCA/C
-
-    AdcaRegs.ADCSOC3CTL.bit.CHSEL = 4;  //SOC3 will convert pin A4
-    AdcaRegs.ADCSOC3CTL.bit.ACQPS = acqps; //sample window is 100 SYSCLK cycles
-    AdcaRegs.ADCSOC3CTL.bit.TRIGSEL = 5; //trigger on ePWM1 SOCA/C
-
-    AdcaRegs.ADCINTSEL1N2.bit.INT1SEL = 3; //end of SOC0 will set INT1 flag
-    AdcaRegs.ADCINTSEL1N2.bit.INT1E = 1;   //enable INT1 flag
-    AdcaRegs.ADCINTFLGCLR.bit.ADCINT1 = 1; //make sure INT1 flag is cleared
-    EDIS;
-}
 
 
 //
@@ -434,15 +466,15 @@ interrupt void sciaTXFIFOISR(void)
 {
     uint16_t i;
 
-    SCI_writeCharArray(SCIA_BASE, sDataA, 2);
+    SCI_writeCharArray(SCIA_BASE, sDataA, 8);
 
     //
     // Increment send data for next cycle
     //
-    for(i = 0; i < 2; i++)
-    {
-        sDataA[i] = (sDataA[i] + 1) & 0x00FF;
-    }
+    //for(i = 0; i < 2; i++)
+  //  {
+    //    sDataA[i] = (sDataA[i] + 1) & 0x00FF;
+  //  }
 
     SCI_clearInterruptStatus(SCIA_BASE, SCI_INT_TXFF);
 
@@ -457,11 +489,19 @@ interrupt void sciaTXFIFOISR(void)
 //
 interrupt void adca1_isr(void)
 {
+
+    FAULT_LED_TOGGLE();
     resultsIndex++;
     AdcaResults[resultsIndex][0] = AdcaResultRegs.ADCRESULT0;
     AdcaResults[resultsIndex][1] = AdcaResultRegs.ADCRESULT1;
     AdcaResults[resultsIndex][2] = AdcaResultRegs.ADCRESULT2;
     AdcaResults[resultsIndex][3] = AdcaResultRegs.ADCRESULT3;
+
+    g_stADCData.m_uShunt = AdcaResults[resultsIndex][0];
+    g_stADCData.m_uHFCT = AdcaResults[resultsIndex][2];
+
+    SetADCSensorData(&g_stADCData);
+    SetTXSensorData(&g_stADCData);
 
     if(RESULTS_BUFFER_SIZE <= resultsIndex)
     {

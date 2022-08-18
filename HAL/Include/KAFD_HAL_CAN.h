@@ -11,6 +11,7 @@
 #ifndef SCU_HAL_CAN_H_
 #define SCU_HAL_CAN_H_
 
+#include "f28x_project.h"
 #include "f2838x_Device.h"     // DSP2833x Headerfile Include File
 #include "driverlib.h"
 #include "device.h"
@@ -28,8 +29,8 @@
 
 #define MAX_CANQ_SIZE                           8
 
-#define CANA_RX_MSG_OBJ_ID_1     0
-#define CANB_RX_MSG_OBJ_ID_1     0
+#define CANA_RX_MSG_OBJ_ID_1     1
+#define CANB_RX_MSG_OBJ_ID_1     1
 #define CANA_RX_MSG_OBJ_Length   6
 #define CANB_RX_MSG_OBJ_Length   8
 
@@ -71,6 +72,7 @@ extern	Uint16 g_auStdID[];
 ------------------------------------------------------------------------------*/
 Uint32 Set_Bit32(Uint32 i_lData, Uint8 i_byBit, Uint32 i_lSet);
 
+void InitCan(void);
 void InitCanMessageBox(void);
 /*
 void Set_CanaMsgBox(stCanMsgObject *i_pstCAN_MSG_Handle);

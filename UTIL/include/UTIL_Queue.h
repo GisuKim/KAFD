@@ -4,8 +4,9 @@
 #include "f2838x_Device.h"
 //#include "UTIL_1553B_ESICD.h"
 
-#define QUEUE_SIZE              2
-#define QUEUE_ARRAY_SIZE        60
+#define QUEUE_SIZE              64
+#define QUEUE_ARRAY_SIZE        2
+
 #define SINGLE_QUEUE_SIZE       64
 
 
@@ -55,10 +56,6 @@ Default initalizer for the Queue object.
                             0, \
               			  (void (*)(Uint32))Push_QueueArray, \
               			  (Uint16 (*)(Uint32))Pop_QueueArray}
-
-
-
-
 
 
 
