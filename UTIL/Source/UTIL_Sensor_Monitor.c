@@ -24,6 +24,7 @@ void AFD_SensorMain(void)
     while(GetADCSensorDataCount())
     {
         GetADCSensorData(&g_stADCData_out);
+
         ConversionAdcData(&g_stADCData_out,&g_stSensorData_out);
 
     }

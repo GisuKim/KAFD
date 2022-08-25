@@ -44,6 +44,8 @@ void (*Alpha_State_Ptr)(void);  // Base States pointer
 void (*A_Task_Ptr)(void);       // State pointer A branch
 void (*B_Task_Ptr)(void);       // State pointer B branch
 
+
+
 interrupt void adca1_isr(void);
 interrupt void CanaISR(void);
 interrupt void CanbISR(void);
@@ -136,9 +138,12 @@ void main(void)
     //
         ConfigureADC();
 
-    //
+
+    //**************************************************************************************
     // Configure the ePWM
+    // ADC 샘플링 주기
     //
+    //**************************************************************************************
         ConfigureEPWM();
 
     //
@@ -355,8 +360,9 @@ interrupt void ISR_CpuTimer0(void) // 1msec
     g_uTXQueueCounter = GetTXSensorDataCount();
     while(GetTXSensorDataCount())
     {
-        if(SciaRegs.SCICTL2.bit.TXEMPTY)
+        if(SciaRegs.SCICTL2.bit.TXRDY == 1)
         {
+            SciaRegs.SCIFFTX.bit.SCIFFENA = 0;
             g_failCNT=0;
             GetTXSensorData(&g_stTXData_out);
 
@@ -370,6 +376,8 @@ interrupt void ISR_CpuTimer0(void) // 1msec
             sDataA[6]=0x00ff & g_SensTXCNT;
             sDataA[7]=0x00a5;
 
+            SCI_writeCharArray(SCIA_BASE, sDataA, 8);
+//            SciaRegs.SCIFFTX.bit.SCIFFENA = 1;
         }
         else
         {
@@ -413,7 +421,7 @@ void initSCIAFIFO()
     // The receive FIFO generates an interrupt when FIFO status
     // bits are greater than equal to 2 out of 16 words
     //
-    SCI_setFIFOInterruptLevel(SCIA_BASE, SCI_FIFO_TX7, SCI_FIFO_RX2);
+    SCI_setFIFOInterruptLevel(SCIA_BASE, SCI_FIFO_TX8, SCI_FIFO_RX2);
     SCI_performSoftwareReset(SCIA_BASE);
 
     SCI_resetTxFIFO(SCIA_BASE);
@@ -466,7 +474,7 @@ interrupt void sciaTXFIFOISR(void)
 {
     uint16_t i;
 
-    SCI_writeCharArray(SCIA_BASE, sDataA, 8);
+//    SCI_writeCharArray(SCIA_BASE, sDataA, 8);
 
     //
     // Increment send data for next cycle
@@ -484,18 +492,22 @@ interrupt void sciaTXFIFOISR(void)
     Interrupt_clearACKGroup(INTERRUPT_ACK_GROUP9);
 }
 
-//
+//**************************************************************************************
 // adca1_isr - Read ADC Buffer in ISR
 //
+//  ADC 입력 신호
+//
+
+//**************************************************************************************
 interrupt void adca1_isr(void)
 {
 
 //    FAULT_LED_TOGGLE();
     resultsIndex++;
-    AdcaResults[resultsIndex][0] = AdcaResultRegs.ADCRESULT0;
-    AdcaResults[resultsIndex][1] = AdcaResultRegs.ADCRESULT1;
-    AdcaResults[resultsIndex][2] = AdcaResultRegs.ADCRESULT2;
-    AdcaResults[resultsIndex][3] = AdcaResultRegs.ADCRESULT3;
+    AdcaResults[resultsIndex][0] = AdcaResultRegs.ADCRESULT0;   //P2
+    AdcaResults[resultsIndex][1] = AdcaResultRegs.ADCRESULT1;   //P3
+    AdcaResults[resultsIndex][2] = AdcaResultRegs.ADCRESULT2;   //P4
+    AdcaResults[resultsIndex][3] = AdcaResultRegs.ADCRESULT3;   //5%
 
     g_stADCData.m_uShunt = AdcaResults[resultsIndex][0];
     g_stADCData.m_uHFCT = AdcaResults[resultsIndex][2];
