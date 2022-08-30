@@ -15,6 +15,7 @@
 #include <HAL/Include/KAFD_HAL_PWM.h>
 #include <UTIL/include/UTIL_Sensor_Monitor.h>
 #include "KAFD_CPU1_Setting.h"
+#include <UTIL/include/UTIL_CRC8.h>
 //
 // Function Prototypes
 //
@@ -57,7 +58,7 @@ interrupt void ISR_CpuTimer0(void);
 //
 // Defines
 //
-#define RESULTS_BUFFER_SIZE 256
+#define RESULTS_BUFFER_SIZE 64
 #define CANA_RX_MSG_RESULT       1       // CAN-A(TX) 모듈의 32개 메시지 오브젝트들 중 1번 MSG_OBJ를 TX용으로 사용
 #define CANA_RX_MSG_RESULT       1       // CAN-A(TX) 모듈의 32개 메시지 오브젝트들 중 1번 MSG_OBJ를 TX용으로 사용
 #define MSG_DATA_A_LENGTH     6       // 테스트용 송수신 메시지 길이
@@ -69,6 +70,11 @@ interrupt void ISR_CpuTimer0(void);
 //
 Uint16 AdcaResults[RESULTS_BUFFER_SIZE][4];
 Uint16 resultsIndex;
+
+Uint16 g_SendValueCount = 0;
+Uint8 g_SendStart = 0;
+
+
 volatile Uint16 bufferFull;
 
 unsigned long              BackTicker;
@@ -88,14 +94,17 @@ Uint16 g_uTXQueueCounter = 0;
 ADC_DATA_STRUCT_DEF g_stADCData;
 ADC_DATA_STRUCT_DEF g_stTXData_out;
 //
+
+Uint8 g_ConnectTestSW = 0;
 // Send data for SCI-A
 //
-uint16_t sDataA[8];
+uint16_t sDataA[12];
+uint8_t sTempDataA[12];
 
 //
 // Received data for SCI-A
 //
-uint16_t rDataA[2];
+uint16_t rDataA[6];
 
 //
 // Used for checking the received data
@@ -321,7 +330,7 @@ void Task_GroupB1(void)         // (executed in every 1msec)
 {
     g_auVTimer1[1]++;
 
-    AFD_SensorMain();
+
 
 //    DSP_SCI_TXEN_ON();
 //  scia_xmit(0x5a);
@@ -342,53 +351,113 @@ void Task_GroupB2(void) //  (executed in every 2msec)
     {
  //       CSU_TJ_COMMUNICATION_main();
 
-        //FAULT_LED_TOGGLE(); //2ms
+//        FAULT_LED_TOGGLE(); //2ms
 
     }
     B_Task_Ptr = &Task_GroupB1;
 }
-
-
-Uint8 g_SensTXCNT = 0;
+Uint16 g_HFCTAVG =0;
+unsigned long g_TempHFCT = 0;
+Uint16 g_SensTXCNT = 0;
 Uint8 g_failCNT = 0;
+Uint8 SendCnt = 10;
 interrupt void ISR_CpuTimer0(void) // 1msec
 {
+
     resultsIndex=0;
     CpuTimer0.InterruptCount++;
 
+    AFD_SensorMain();
 
-    g_uTXQueueCounter = GetTXSensorDataCount();
+    unsigned char CrcTemp = 0;
+    //                    SciaRegs.SCIFFTX.bit.SCIFFENA = 0;
+//    g_uTXQueueCounter = GetTXSensorDataCount();
     while(GetTXSensorDataCount())
     {
-        if(SciaRegs.SCICTL2.bit.TXRDY == 1)
+        GetTXSensorData(&g_stTXData_out);
+
+
+        if(g_ConnectTestSW==1 && g_SendStart == 1)
         {
-            SciaRegs.SCIFFTX.bit.SCIFFENA = 0;
-            g_failCNT=0;
-            GetTXSensorData(&g_stTXData_out);
 
-            g_SensTXCNT++;
-            sDataA[0]=0x00fe;
-            sDataA[1]=0x0008;
-            sDataA[2]=0x00ff & (g_stTXData_out.m_uHFCT >> 8);
-            sDataA[3]=0x00ff & g_stTXData_out.m_uHFCT;
-            sDataA[4]=0x00ff & (g_stTXData_out.m_uShunt >> 8);
-            sDataA[5]=0x00ff & g_stTXData_out.m_uShunt;
-            sDataA[6]=0x00ff & g_SensTXCNT;
-            sDataA[7]=0x00a5;
+            if(SciaRegs.SCICTL2.bit.TXRDY == 1)
+            {
+                if(g_SendValueCount >= g_SensTXCNT)
+                {
+                    if(SendCnt>0)
+                    {
+                        g_TempHFCT += (unsigned long)g_stTXData_out.m_uHFCT;
+                        SendCnt--;
+                    }
+                    else
+                    {
+                        SendCnt=10;
+                        g_HFCTAVG = (unsigned long)g_TempHFCT / (unsigned long)SendCnt;
+                        g_TempHFCT = 0;
+                    }
 
-            SCI_writeCharArray(SCIA_BASE, sDataA, 8);
-//            SciaRegs.SCIFFTX.bit.SCIFFENA = 1;
+                    g_failCNT=0;
+                    sTempDataA[0] = 0xfe;
+                    sTempDataA[1] = 0x10;
+                    sTempDataA[2] = (g_stTXData_out.m_uShunt >> 8);
+                    sTempDataA[3] = g_stTXData_out.m_uShunt;
+                    sTempDataA[4] = (g_stTXData_out.m_uHFCT >> 8);
+                    sTempDataA[5] = g_stTXData_out.m_uHFCT;
+                    sTempDataA[6] = ((0xff00 & g_HFCTAVG) >> 8);
+                    sTempDataA[7] = 0x00ff & g_HFCTAVG;
+                    sTempDataA[8] = (g_SensTXCNT>> 8);
+                    sTempDataA[9] = g_SensTXCNT;
+                    sTempDataA[10] = 0x00;
+                    sTempDataA[11] = 0xa5;
+
+                    g_SensTXCNT++;
+                }
+                else
+                {
+                    g_SendStart = 0;
+                    g_SensTXCNT=0;
+                    sTempDataA[0] = 0xfe;
+                    sTempDataA[1] = 0x07;
+                    sTempDataA[2] = 0x00;
+                    sTempDataA[3] = 0x00;
+                    sTempDataA[4] = 0x00;
+                    sTempDataA[5] = 0x00;
+                    sTempDataA[6] = 0x00;
+                    sTempDataA[7] = 0x00;
+                    sTempDataA[8] = 0x00;
+                    sTempDataA[9] = 0x00;
+                    sTempDataA[10] = 0x00;
+                    sTempDataA[11] = 0xa5;
+                }
+
+                CrcTemp = CRC8_BlockChecksum(sTempDataA,12);
+                int i;
+
+                for(i = 0; i < 12; i++)
+                {
+                  sDataA[i]= 0x00ff & sTempDataA[i];
+                }
+
+                sDataA[10]= 0x00ff & CrcTemp;
+
+                SCI_writeCharArray(SCIA_BASE, sDataA, 12);
+    //            SCI_writeCharArray(SCIA_BASE, sDataA, 8);
+
+            }
+            else
+            {
+                g_failCNT++;
+
+            }
         }
         else
         {
-            g_failCNT++;
+            GetTXSensorData(&g_stTXData_out);
+
         }
+        SciaRegs.SCIFFTX.bit.SCIFFENA = 1;
+
     }
-
-
-
-
-
     // Acknowledge this interrupt to receive more interrupts from group 1
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
 
@@ -401,7 +470,7 @@ void initSCIAFIFO()
     //
     // 8 char bits, 1 stop bit, no parity. Baud rate is 115200.
     //
-    SCI_setConfig(SCIA_BASE, DEVICE_LSPCLK_FREQ, 115200, (SCI_CONFIG_WLEN_8 |
+    SCI_setConfig(SCIA_BASE, DEVICE_LSPCLK_FREQ, 460800, (SCI_CONFIG_WLEN_8 |
                                                         SCI_CONFIG_STOP_ONE |
                                                         SCI_CONFIG_PAR_NONE));
     SCI_enableModule(SCIA_BASE);
@@ -412,7 +481,7 @@ void initSCIAFIFO()
     //
     // RX and TX FIFO Interrupts Enabled
     //
-    SCI_enableInterrupt(SCIA_BASE, (SCI_INT_RXFF | SCI_INT_TXFF));
+    SCI_enableInterrupt(SCIA_BASE, (SCI_INT_RXFF | SCI_INT_TXFF | SCI_INT_RXRDY_BRKDT));
     SCI_disableInterrupt(SCIA_BASE, SCI_INT_RXERR);
 
     //
@@ -421,7 +490,7 @@ void initSCIAFIFO()
     // The receive FIFO generates an interrupt when FIFO status
     // bits are greater than equal to 2 out of 16 words
     //
-    SCI_setFIFOInterruptLevel(SCIA_BASE, SCI_FIFO_TX8, SCI_FIFO_RX2);
+    SCI_setFIFOInterruptLevel(SCIA_BASE, SCI_FIFO_TX12, SCI_FIFO_RX6);
     SCI_performSoftwareReset(SCIA_BASE);
 
     SCI_resetTxFIFO(SCIA_BASE);
@@ -440,25 +509,157 @@ void error(void)
     for (;;);
 }
 
+void SendHanShaking(void)
+{
 
+    unsigned char CrcTemp = 0;
+
+    sTempDataA[0] = 0xfe;
+    sTempDataA[1] = 0x01;
+    sTempDataA[2] = 0x00;
+    sTempDataA[3] = 0x00;
+    sTempDataA[4] = 0x00;
+    sTempDataA[5] = 0x00;
+    sTempDataA[6] = 0x00;
+    sTempDataA[7] = 0x00;
+    sTempDataA[8] = 0x00;
+    sTempDataA[9] = 0x00;
+    sTempDataA[10] = 0x00;
+    sTempDataA[11] = 0xa5;
+
+    CrcTemp = CRC8_BlockChecksum(sTempDataA,12);
+    int i;
+
+    for(i = 0; i < 12; i++)
+    {
+        sDataA[i]= 0x00ff & sTempDataA[i];
+    }
+
+    sDataA[10]= 0x00ff & CrcTemp;
+
+    SCI_writeCharArray(SCIA_BASE, sDataA, 12);
+
+}
+
+
+
+void SendCloseCom(void)
+{
+    unsigned char CrcTemp = 0;
+
+    sTempDataA[0] = 0xfe;
+    sTempDataA[1] = 0x05;
+    sTempDataA[2] = 0x00;
+    sTempDataA[3] = 0x00;
+    sTempDataA[4] = 0x00;
+    sTempDataA[5] = 0x00;
+    sTempDataA[6] = 0x00;
+    sTempDataA[7] = 0x00;
+    sTempDataA[8] = 0x00;
+    sTempDataA[9] = 0x00;
+    sTempDataA[10] = 0x00;
+    sTempDataA[11] = 0xa5;
+
+    CrcTemp = CRC8_BlockChecksum(sTempDataA,12);
+    int i;
+
+    for(i = 0; i < 12; i++)
+    {
+        sDataA[i]= 0x00ff & sTempDataA[i];
+    }
+
+    sDataA[10]= 0x00ff & CrcTemp;
+
+    SCI_writeCharArray(SCIA_BASE, sDataA, 12);
+
+}
+
+
+void DataSendModeStart(Uint8 count)
+{
+    g_SendValueCount = (Uint16)count * 12000;
+    g_SendStart = 1;
+
+}
+
+
+
+Uint8 g_remainCNT = 0;
+Uint8 g_remainValue[12];
+Uint8 g_testTemp[12];
 interrupt void sciaRXFIFOISR(void)
 {
-    uint16_t i;
 
-    SCI_readCharArray(SCIA_BASE, rDataA, 2);
-
+    SCI_readCharArray(SCIA_BASE, rDataA, 6);
+    Uint8 datasize=6;
+    Uint8 count=0;
+    Uint8 i;
     //
     // Check received data
     //
-    for(i = 0; i < 2; i++)
+    if (g_remainCNT != 0)
     {
-        if(rDataA[i] != ((rDataPointA + i) & 0x00FF))
+        for (i = 0; i < g_remainCNT; i++)
         {
-            //error();
+            g_testTemp[i] = g_remainValue[i];
+        }
+
+        for (i = 0; i < datasize; i++)
+        {
+            g_testTemp[g_remainCNT + i] = rDataA[i];
+        }
+    }
+    else
+    {
+        for (i = 0; i < datasize; i++)
+        {
+            g_testTemp[i] = rDataA[i];
         }
     }
 
-    rDataPointA = (rDataPointA + 1) & 0x00FF;
+    datasize = datasize + g_remainCNT;
+    while((datasize - count) > 5)
+    {
+        if(g_testTemp[count] == 0xfd && g_testTemp[count+5]==0xa5){
+              switch(g_testTemp[count+1])
+              {
+              case 0x00:
+                  SendHanShaking();
+                  g_ConnectTestSW = 1;
+                  break;
+              case 0x02:
+                  DataSendModeStart(g_testTemp[count+3]);
+                  break;
+              case 0x03:
+      //            DataSendWithTriggerModeStart(rDataA[3]);
+                  break;
+              case 0x04:
+      //            DataSendWithTriggerModeStop();
+                  break;
+              case 0x05:
+                  SendCloseCom();
+                  g_ConnectTestSW = 0;
+                  break;
+
+              }
+              count += 5;
+          }
+        else
+        {
+            count += 1;
+        }
+
+
+        if (datasize - count != 0)
+        {
+            g_remainCNT = datasize - count;
+            for (i = 0; i < g_remainCNT; i++)
+            {
+                g_remainValue[i] = g_testTemp[count + i];
+            }
+        }
+    }
+
 
     SCI_clearOverflowStatus(SCIA_BASE);
 
@@ -503,14 +704,22 @@ interrupt void adca1_isr(void)
 {
 
 //    FAULT_LED_TOGGLE();
-    resultsIndex++;
-    AdcaResults[resultsIndex][0] = AdcaResultRegs.ADCRESULT0;   //P2
-    AdcaResults[resultsIndex][1] = AdcaResultRegs.ADCRESULT1;   //P3
-    AdcaResults[resultsIndex][2] = AdcaResultRegs.ADCRESULT2;   //P4
-    AdcaResults[resultsIndex][3] = AdcaResultRegs.ADCRESULT3;   //5%
 
-    g_stADCData.m_uShunt = AdcaResults[resultsIndex][0];
-    g_stADCData.m_uHFCT = AdcaResults[resultsIndex][2];
+//    AdcaResults[resultsIndex][0] = AdcaResultRegs.ADCRESULT0;   //P2
+//    AdcaResults[resultsIndex][1] = AdcaResultRegs.ADCRESULT1;   //P3
+//    AdcaResults[resultsIndex][2] += AdcaResultRegs.ADCRESULT2;   //P4
+//    resultsIndex++;
+//
+//    g_stADCData.m_uShunt = AdcaResults[resultsIndex][0];
+//    g_stADCData.m_uHFCT = AdcaResults[resultsIndex][2];
+
+//        AdcaResults[resultsIndex][0] = AdcaResultRegs.ADCRESULT0;   //P2
+//        AdcaResults[resultsIndex][1] = AdcaResultRegs.ADCRESULT1;   //P3
+//        AdcaResults[resultsIndex][2] = AdcaResultRegs.ADCRESULT2;   //P4
+//        resultsIndex++;
+
+        g_stADCData.m_uShunt = AdcaResultRegs.ADCRESULT0;
+        g_stADCData.m_uHFCT = AdcaResultRegs.ADCRESULT2;
 
     SetADCSensorData(&g_stADCData);
     SetTXSensorData(&g_stADCData);

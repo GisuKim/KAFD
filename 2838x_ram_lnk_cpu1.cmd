@@ -12,9 +12,9 @@ MEMORY
    RAMLS2           : origin = 0x009000, length = 0x000800
    RAMLS3           : origin = 0x009800, length = 0x000800
    RAMLS4           : origin = 0x00A000, length = 0x000800
-   RAMLS5           : origin = 0x00A800, length = 0x000800
-   RAMLS6           : origin = 0x00B000, length = 0x000800
-   RAMLS7           : origin = 0x00B800, length = 0x000800
+   RAMLS5           : origin = 0x00A800, length = 0x001000
+   RAMLS6           : origin = 0x00B800, length = 0x000400
+   RAMLS7           : origin = 0x00Bc00, length = 0x000400
    RAMGS0           : origin = 0x00D000, length = 0x001000
    RAMGS1           : origin = 0x00E000, length = 0x001000
    RAMGS2           : origin = 0x00F000, length = 0x001000
