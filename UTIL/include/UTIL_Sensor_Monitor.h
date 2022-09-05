@@ -18,7 +18,6 @@
 #define SHUNT_SENSOR_OFFSET       0.0
 
 typedef struct ADC_DATA_STRUCT{
-                Uint16  m_Count;
                 Uint16  m_uShunt;             // 0~4095(0V~1V)                                     ,       1               Shunt ADC1,
                 Uint16  m_uHFCT;              // 0~4095(-5V~+5V)                                   ,       1               HFCT  ADC3
             }ADC_DATA_STRUCT_DEF;

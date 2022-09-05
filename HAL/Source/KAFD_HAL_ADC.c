@@ -18,8 +18,8 @@ void ConfigureADC(void)
 
     //
     // Write configurations
-    // 현재 System Clock은 200Mhz
-    AdcaRegs.ADCCTL2.bit.PRESCALE = 6; //set ADCCLK divider to /4   50Mhz  <--- 분해능
+    //
+    AdcaRegs.ADCCTL2.bit.PRESCALE = 6; //set ADCCLK divider to /4   50Mhz
     AdcSetMode(ADC_ADCA, ADC_RESOLUTION_12BIT, ADC_SIGNALMODE_SINGLE);
 
     //

@@ -97,8 +97,8 @@ ADC_DATA_STRUCT_DEF g_stTXData_out;
 Uint8 g_ConnectTestSW = 0;
 // Send data for SCI-A
 //
-uint16_t sDataA[12];
-uint8_t sTempDataA[12];
+uint16_t sDataA[24];
+uint8_t sTempDataA[24];
 Uint16 g_HFCTAVG =0;
 unsigned long g_TempHFCT = 0;
 Uint32 g_SensTXCNT = 0;
@@ -320,56 +320,49 @@ void Task_GroupA1(void)         // (executed in every 20 msec)
 void Task_GroupB1(void)         // (executed in every 1msec)
 {
     g_auVTimer1[1]++;
-    Uint8 sendCNT = 10;
+
+    Uint8 i = 0;
 //        AFD_SensorMain();
 //
         unsigned char CrcTemp = 0;
 
         g_uTXQueueCounter = GetTXSensorDataCount();
 
-        while(GetTXSensorDataCount() && sendCNT > 0)
+        if(GetTXSensorDataCount() > 9)
         {
             if(SciaRegs.SCICTL2.bit.TXRDY == 1 && SciaRegs.SCICTL2.bit.TXEMPTY == 1 )
             {
 
-                if(g_ConnectTestSW==1)
+                if(g_ConnectTestSW==1 && g_SendStart == 1)
                 {
-                    GetTXSensorData(&g_stTXData_out);
-                    if(g_SendValueCount >= g_SensTXCNT)
+
+                    if(g_SendValueCount > g_SensTXCNT)
                     {
-                        if(SendCnt>0)
-                        {
-                            g_TempHFCT += (unsigned long)g_stTXData_out.m_uHFCT;
-                            SendCnt--;
-                        }
-                        else
-                        {
-                            SendCnt=10;
-                            g_HFCTAVG = (unsigned long)g_TempHFCT / (unsigned long)SendCnt;
-                            g_TempHFCT = 0;
-                        }
+//                        if(SendCnt>0)
+//                        {
+//                            g_TempHFCT += (unsigned long)g_stTXData_out.m_uHFCT;
+//                            SendCnt--;
+//                        }
+//                        else
+//                        {
+//                            SendCnt=10;
+//                            g_HFCTAVG = (unsigned long)g_TempHFCT / (unsigned long)SendCnt;
+//                            g_TempHFCT = 0;
+//                        }
 
                         g_failCNT=0;
 
-//                        sTempDataA[0] = 0xfe;
-//                        sTempDataA[1] = 0x10;
-//                        sTempDataA[2] = (g_stTXData_out.m_uShunt >> 8);
-//                        sTempDataA[3] = g_stTXData_out.m_uShunt;
-//                        sTempDataA[4] = (g_stTXData_out.m_uHFCT >> 8);
-//                        sTempDataA[5] = g_stTXData_out.m_uHFCT;
-//                        sTempDataA[6] = ((0xff00 & g_stTXData_out.m_Count) >> 8);
-//                        sTempDataA[7] = 0x00ff & g_stTXData_out.m_Count;
-//                        sTempDataA[8] = (g_SensTXCNT>> 8);
-//                        sTempDataA[9] = g_SensTXCNT;
-//                        sTempDataA[10] = 0x00;
-//                        sTempDataA[11] = 0xa5;
-
                         sTempDataA[0] = 0xfe;
                         sTempDataA[1] = 0x10;
-                        sTempDataA[2] = (g_stTXData_out.m_uHFCT >> 8);
-                        sTempDataA[3] = g_stTXData_out.m_uHFCT;
-                        sTempDataA[4] = 0x00ff & g_stTXData_out.m_Count;
-                        sTempDataA[5] = 0xa5;
+                        for(i = 1; i < 11 ; i++)
+                        {
+                            GetTXSensorData(&g_stTXData_out);
+                            sTempDataA[i*2] =  (g_stTXData_out.m_uHFCT >> 8);
+                            sTempDataA[(i*2)+1] = g_stTXData_out.m_uHFCT;
+                        }
+
+                        sTempDataA[22] = 0x00ff & (g_SensTXCNT % 256);
+                        sTempDataA[23] = 0xa5;
 
                         g_SensTXCNT++;
                     }
@@ -379,10 +372,14 @@ void Task_GroupB1(void)         // (executed in every 1msec)
                         g_SensTXCNT=0;
                         sTempDataA[0] = 0xfe;
                         sTempDataA[1] = 0x07;
-                        sTempDataA[2] = 0x00;
-                        sTempDataA[3] = 0x00;
-                        sTempDataA[4] = 0x00;
-                        sTempDataA[5] = 0xa5;
+                        for(i = 2; i < 22 ; i++)
+                        {
+
+                            sTempDataA[i] =  0x00;
+
+                        }
+                        sTempDataA[22] = 0x00;
+                        sTempDataA[23] = 0xa5;
 
                     }
 
@@ -390,14 +387,13 @@ void Task_GroupB1(void)         // (executed in every 1msec)
 //
                     int i;
 
-                    for(i = 0; i < 6; i++)
+                    for(i = 0; i < 24; i++)
                     {
                       sDataA[i]= 0x00ff & sTempDataA[i];
                     }
 //
 //                    sDataA[10]= 0x00ff & CrcTemp;
-                    SCI_writeCharArray(SCIA_BASE, sDataA, 6);
-                    sendCNT--;
+                    SCI_writeCharArray(SCIA_BASE, sDataA, 24);
         //            SCI_writeCharArray(SCIA_BASE, sDataA, 8);
 
                 }
@@ -499,28 +495,30 @@ void error(void)
 
 void SendHanShaking(void)
 {
-
+    int i;
     unsigned char CrcTemp = 0;
 
     sTempDataA[0] = 0xfe;
     sTempDataA[1] = 0x01;
-    sTempDataA[2] = 0x00;
-    sTempDataA[3] = 0x00;
-    sTempDataA[4] = 0x00;
-    sTempDataA[5] = 0xa5;
+    for(i = 2; i < 22 ; i++)
+    {
+        sTempDataA[i] =  0x00;
+
+    }
+    sTempDataA[22] = 0x00;
+    sTempDataA[23] = 0xa5;
 
 
 //    CrcTemp = CRC8_BlockChecksum(sTempDataA,12);
-    int i;
 //
-    for(i = 0; i < 6; i++)
+    for(i = 0; i < 24; i++)
     {
         sDataA[i]= 0x00ff & sTempDataA[i];
     }
 //
 //    sDataA[10]= 0x00ff & CrcTemp;
 
-    SCI_writeCharArray(SCIA_BASE, sDataA, 6);
+    SCI_writeCharArray(SCIA_BASE, sDataA, 24);
 
 }
 
@@ -528,41 +526,44 @@ void SendHanShaking(void)
 
 void SendCloseCom(void)
 {
+    int i;
     unsigned char CrcTemp = 0;
 
     sTempDataA[0] = 0xfe;
     sTempDataA[1] = 0x05;
-    sTempDataA[2] = 0x00;
-    sTempDataA[3] = 0x00;
-    sTempDataA[4] = 0x00;
-    sTempDataA[5] = 0xa5;
+    for(i = 2; i < 22 ; i++)
+    {
+        sTempDataA[i] =  0x00;
+
+    }
+    sTempDataA[22] = 0x00;
+    sTempDataA[23] = 0xa5;
 
 
 //    CrcTemp = CRC8_BlockChecksum(sTempDataA,12);
-    int i;
 
-    for(i = 0; i < 6; i++)
+    for(i = 0; i < 24; i++)
     {
         sDataA[i]= 0x00ff & sTempDataA[i];
     }
 //
 //    sDataA[10]= 0x00ff & CrcTemp;
 
-    SCI_writeCharArray(SCIA_BASE, sDataA, 6);
+    SCI_writeCharArray(SCIA_BASE, sDataA, 24);
 
 }
 
 
 void DataSendModeStart(Uint8 count)
 {
-    g_SendValueCount = (Uint16)count * 5000;
+    g_SendValueCount = (Uint32)count * 1000;
     g_SendStart = 1;
 
 }
 
 void DataSendWithTriggerModeStart(Uint8 count)
 {
-    g_SendValueCount = (Uint16)count * 5000;
+    g_SendValueCount = (Uint32)count * 1000;
     g_SendStart = 1;
     g_TriggerMode = 1;
     g_trigger_on = 0;
@@ -709,7 +710,7 @@ interrupt void adca1_isr(void)
 
 
     adcSampleCNT++;
-    if(adcSampleCNT>19)
+    if(adcSampleCNT>9)
     {
             FAULT_LED_TOGGLE();
         adcSampleCNT=0;

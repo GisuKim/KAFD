@@ -29,7 +29,7 @@ void InitAFDGPIO(void)
     GPIO_setPadConfig(GPIO_48_SCIA_TX, GPIO_PIN_TYPE_STD);
     GPIO_setQualificationMode(GPIO_48_SCIA_TX, GPIO_QUAL_ASYNC);   //No synchronization
 
-    GPIO_setPinConfig(GPIO_0_GPIO0);        //Input Trigger
+
     GPIO_setPinConfig(GPIO_1_GPIO1);        //RS485 RE
     GPIO_setPinConfig(GPIO_2_GPIO2);        //CAN A OE
     GPIO_setPinConfig(GPIO_3_GPIO3);        //CAN B OE
@@ -37,9 +37,6 @@ void InitAFDGPIO(void)
     GPIO_setPinConfig(GPIO_5_GPIO5);        //FAULT LED
     GPIO_setPinConfig(GPIO_6_GPIO6);        //RS485 DE
     GPIO_setPinConfig(GPIO_7_GPIO7);        //SPARE SIG
-
-    GPIO_setDirectionMode(0,GPIO_DIR_MODE_IN);
-    GPIO_setPadConfig(1, GPIO_PIN_TYPE_PULLUP);   // Enable pullup on GPIO01
 
     GPIO_setDirectionMode(1,GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(1, GPIO_PIN_TYPE_PULLUP);   // Enable pullup on GPIO01
@@ -68,5 +65,6 @@ void InitAFDGPIO(void)
     GPIO_setDirectionMode(7,GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(7, GPIO_PIN_TYPE_PULLUP);   // Enable pullup on GPIO7
     GPIO_writePin(7, 0);                          //SPARE SIG default = 0 (disable)
+
 
 }
