@@ -24,7 +24,7 @@ void AFD_SensorMain(void)
 {
     int i = 0;
     g_uSensorQueueCounter = GetADCSensorDataCount();
-    while(GetADCSensorDataCount())
+    if(GetADCSensorDataCount())
     {
         GetADCSensorData(&g_stADCData_out);
 

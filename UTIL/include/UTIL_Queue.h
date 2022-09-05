@@ -4,8 +4,8 @@
 #include "f2838x_Device.h"
 //#include "UTIL_1553B_ESICD.h"
 
-#define QUEUE_SIZE              64
-#define QUEUE_ARRAY_SIZE        2
+#define QUEUE_SIZE              128
+#define QUEUE_ARRAY_SIZE        3
 
 #define SINGLE_QUEUE_SIZE       64
 

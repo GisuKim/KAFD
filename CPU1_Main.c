@@ -59,19 +59,18 @@ interrupt void ISR_CpuTimer0(void);
 // Defines
 //
 #define RESULTS_BUFFER_SIZE 64
-#define CANA_RX_MSG_RESULT       1       // CAN-A(TX) 모듈의 32개 메시지 오브젝트들 중 1번 MSG_OBJ를 TX용으로 사용
-#define CANA_RX_MSG_RESULT       1       // CAN-A(TX) 모듈의 32개 메시지 오브젝트들 중 1번 MSG_OBJ를 TX용으로 사용
+//#define CANA_RX_MSG_RESULT       1       // CAN-A(TX) 모듈의 32개 메시지 오브젝트들 중 1번 MSG_OBJ를 TX용으로 사용
 #define MSG_DATA_A_LENGTH     6       // 테스트용 송수신 메시지 길이
 #define MSG_DATA_B_LENGTH     8       // 테스트용 송수신 메시지 길이
 #define TX_MSG_OBJ_ID       1       // CAN-A(TX) 모듈의 32개 메시지 오브젝트들 중 1번 MSG_OBJ를 TX용으로 사용
 #define RX_MSG_OBJ_ID       1       // CAN-B(RX) 모듈의 32개 메시지 오브젝트들 중 1번 MSG_OBJ를 RX용으로 사용
-//
+////
 // Globals
 //
 Uint16 AdcaResults[RESULTS_BUFFER_SIZE][4];
 Uint16 resultsIndex;
 
-Uint16 g_SendValueCount = 0;
+Uint32 g_SendValueCount = 0;
 Uint8 g_SendStart = 0;
 
 
@@ -100,12 +99,18 @@ Uint8 g_ConnectTestSW = 0;
 //
 uint16_t sDataA[12];
 uint8_t sTempDataA[12];
-
+Uint16 g_HFCTAVG =0;
+unsigned long g_TempHFCT = 0;
+Uint32 g_SensTXCNT = 0;
+Uint8 g_failCNT = 0;
+Uint8 SendCnt = 10;
+Uint8 AdcTestCnt = 0;
 //
 // Received data for SCI-A
 //
 uint16_t rDataA[6];
-
+Uint8 g_trigger_on = 0;
+Uint8 g_TriggerMode = 0;
 //
 // Used for checking the received data
 //
@@ -127,10 +132,8 @@ void main(void)
 // illustrates how to set the GPIO to it's default state.
 //
     InitGpio(); // Skipped for this example
-
     InitAFDGPIO();
 
-    InitCan();
     //
     // Initialize PIE and clear PIE registers. Disables CPU interrupts.
     //
@@ -142,46 +145,15 @@ void main(void)
     //
     Interrupt_initVectorTable();
 
-    //
-    // Configure the ADC and power it up
-    //
-        ConfigureADC();
-
-
-    //**************************************************************************************
-    // Configure the ePWM
-    // ADC 샘플링 주기
-    //
-    //**************************************************************************************
-        ConfigureEPWM();
-
-    //
-    // Setup the ADC for ePWM triggered conversions on channel 0
-    //
-        SetupADCEpwm();
-
-    //
-    // Enable Global Interrupt (INTM) and realtime interrupt (DBGM)
-    //
-
-
-
-
 //
 // Map ISR functions
-//
-//    EALLOW;
-//    PieVectTable.ADCA1_INT = &adca1_isr; //function for ADCA interrupt 1
-//    EDIS;
-
     Interrupt_register(INT_ADCA1, &adca1_isr);    // INT_CANB0 인터럽트 벡터에 CanbISR( ) 함수 연결
     Interrupt_register(INT_CANA0, &CanaISR);    // INT_CANB0 인터럽트 벡터에 CanbISR( ) 함수 연결
     Interrupt_register(INT_CANB0, &CanbISR);    // INT_CANB0 인터럽트 벡터에 CanbISR( ) 함수 연결
     Interrupt_register(INT_SCIA_RX, &sciaRXFIFOISR);
-    Interrupt_register(INT_SCIA_TX, &sciaTXFIFOISR);
+//    Interrupt_register(INT_SCIA_TX, &sciaTXFIFOISR);
     Interrupt_register(INT_TIMER0, &ISR_CpuTimer0);
 
-    initSCIAFIFO();
 
     CpuTimer1Regs.PRD.all =  mSec1;     // task A
     CpuTimer2Regs.PRD.all =  mSec5;     // task B
@@ -204,33 +176,54 @@ void main(void)
     StartCpuTimer0();           //1[Khz] - ADC, RDC
     StartCpuTimer2();           //2[Khz] - CSU, CAN
 
+#if( RUN_ON_TYPE == RUN_ON_FLASH)
+//    MemCopy(&RamfuncsLoadStart, &RamfuncsLoadEnd, &RamfuncsRunStart);
+//    MemCopy(&Flash28_API_LoadStart, &Flash28_API_LoadEnd, &Flash28_API_RunStart);
+//    InitFlash();
+#endif
+//
+    InitCan();
+    InitCanMessageBox();
+        initSCIAFIFO();
 
-//    for(i = 0; i < 2; i++)
-//    {
-//        sDataA[i] = i;
-//    }
+//*****************************************************************************************************
+// ADC 설정 관련
+//*****************************************************************************************************
+// Configure the ADC and power it up
+        ConfigureADC();             //분해능을 여기서 설정
 
-  //  rDataPointA = sDataA[0];
+// Configure the ePWM
+        ConfigureEPWM();            // ADC 샘플링 주기
+// Setup the ADC for ePWM triggered conversions on channel 0
+        SetupADCEpwm();             //여기서는 읽어욜 채널을 설정
+//******************************************************************************************************
 
-    //
-    // Enable the CAN-A interrupt signal
-    //
+        //
+// Enable Global Interrupt (INTM) and realtime interrupt (DBGM)
+//
+//
+
+
+
+
+//    IER |= M_INT1 | M_INT9; //Enable group 1 interrupts
+    Interrupt_enable(INT_ADCA1);        //adca1 interrupt enabel
+
+    CAN_enableGlobalInterrupt(CANA_BASE, CAN_GLOBAL_INT_CANINT0);
+    CAN_enableGlobalInterrupt(CANB_BASE, CAN_GLOBAL_INT_CANINT0);
+//
     Interrupt_enable(INT_CANA0);
     Interrupt_enable(INT_CANB0);
     Interrupt_enable(INT_SCIA_RX);
-    Interrupt_enable(INT_SCIA_TX);
+//    Interrupt_enable(INT_SCIA_TX);
     Interrupt_enable(INT_TIMER0);
 
-    IER |= M_INT1 | M_INT9; //Enable group 1 interrupts
-    CAN_enableGlobalInterrupt(CANA_BASE, CAN_GLOBAL_INT_CANINT0);
-    CAN_enableGlobalInterrupt(CANB_BASE, CAN_GLOBAL_INT_CANINT0);
 
-    InitCanMessageBox();
 
-    CAN_startModule(CANA_BASE);
-    CAN_startModule(CANB_BASE);
+//    CAN_startModule(CANA_BASE);
+//    CAN_startModule(CANB_BASE);
 
-    Interrupt_clearACKGroup(INTERRUPT_ACK_GROUP9);
+//    Interrupt_clearACKGroup(INTERRUPT_ACK_GROUP9);
                       // Load output latch
 
 
@@ -251,28 +244,26 @@ void main(void)
     g_auVTimer1[0] = 0;
     g_auVTimer1[1] = 0;
 
-
     EINT;
     ERTM;
 
-
+//*****************************************************************************************************
+// ADC 설정 관련
 //
-// Enable PIE interrupt
-//
-    PieCtrlRegs.PIEIER1.bit.INTx1 = 1;
-
-//
+// 여기서 메인 루틴이 시작 되지 건에 ADC 싱크를 동기화 시켜 준다.
+//*****************************************************************************************************
 // Sync ePWM
 //
     EALLOW;
     CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 1;
 
-
     EPwm1Regs.ETSEL.bit.SOCAEN = 1;  //enable SOCA
     EPwm1Regs.TBCTL.bit.CTRMODE = 0; //unfreeze, and enter up count mode
-//
-// Take conversions indefinitely in loop
-//
+
+    EDIS;
+////
+//// Take conversions indefinitely in loop
+////
     do
     {
         g_uBackTicker++;
@@ -329,9 +320,100 @@ void Task_GroupA1(void)         // (executed in every 20 msec)
 void Task_GroupB1(void)         // (executed in every 1msec)
 {
     g_auVTimer1[1]++;
+    Uint8 sendCNT = 10;
+//        AFD_SensorMain();
+//
+        unsigned char CrcTemp = 0;
+
+        g_uTXQueueCounter = GetTXSensorDataCount();
+
+        while(GetTXSensorDataCount() && sendCNT > 0)
+        {
+            if(SciaRegs.SCICTL2.bit.TXRDY == 1 && SciaRegs.SCICTL2.bit.TXEMPTY == 1 )
+            {
+
+                if(g_ConnectTestSW==1)
+                {
+                    GetTXSensorData(&g_stTXData_out);
+                    if(g_SendValueCount >= g_SensTXCNT)
+                    {
+                        if(SendCnt>0)
+                        {
+                            g_TempHFCT += (unsigned long)g_stTXData_out.m_uHFCT;
+                            SendCnt--;
+                        }
+                        else
+                        {
+                            SendCnt=10;
+                            g_HFCTAVG = (unsigned long)g_TempHFCT / (unsigned long)SendCnt;
+                            g_TempHFCT = 0;
+                        }
+
+                        g_failCNT=0;
+
+//                        sTempDataA[0] = 0xfe;
+//                        sTempDataA[1] = 0x10;
+//                        sTempDataA[2] = (g_stTXData_out.m_uShunt >> 8);
+//                        sTempDataA[3] = g_stTXData_out.m_uShunt;
+//                        sTempDataA[4] = (g_stTXData_out.m_uHFCT >> 8);
+//                        sTempDataA[5] = g_stTXData_out.m_uHFCT;
+//                        sTempDataA[6] = ((0xff00 & g_stTXData_out.m_Count) >> 8);
+//                        sTempDataA[7] = 0x00ff & g_stTXData_out.m_Count;
+//                        sTempDataA[8] = (g_SensTXCNT>> 8);
+//                        sTempDataA[9] = g_SensTXCNT;
+//                        sTempDataA[10] = 0x00;
+//                        sTempDataA[11] = 0xa5;
+
+                        sTempDataA[0] = 0xfe;
+                        sTempDataA[1] = 0x10;
+                        sTempDataA[2] = (g_stTXData_out.m_uHFCT >> 8);
+                        sTempDataA[3] = g_stTXData_out.m_uHFCT;
+                        sTempDataA[4] = 0x00ff & g_stTXData_out.m_Count;
+                        sTempDataA[5] = 0xa5;
+
+                        g_SensTXCNT++;
+                    }
+                    else
+                    {
+                        g_SendStart = 0;
+                        g_SensTXCNT=0;
+                        sTempDataA[0] = 0xfe;
+                        sTempDataA[1] = 0x07;
+                        sTempDataA[2] = 0x00;
+                        sTempDataA[3] = 0x00;
+                        sTempDataA[4] = 0x00;
+                        sTempDataA[5] = 0xa5;
+
+                    }
+
+//                    CrcTemp = CRC8_BlockChecksum(sTempDataA,6);
+//
+                    int i;
+
+                    for(i = 0; i < 6; i++)
+                    {
+                      sDataA[i]= 0x00ff & sTempDataA[i];
+                    }
+//
+//                    sDataA[10]= 0x00ff & CrcTemp;
+                    SCI_writeCharArray(SCIA_BASE, sDataA, 6);
+                    sendCNT--;
+        //            SCI_writeCharArray(SCIA_BASE, sDataA, 8);
+
+                }
+//                else
+//                {
+//                    g_failCNT++;
+//
+//                }
 
 
+//                    SciaRegs.SCIFFTX.bit.SCIFFENA = 0;
 
+//            SciaRegs.SCIFFTX.bit.SCIFFENA = 1;
+
+            }
+        }
 //    DSP_SCI_TXEN_ON();
 //  scia_xmit(0x5a);
 //    CSU_Sensor_main();
@@ -356,108 +438,14 @@ void Task_GroupB2(void) //  (executed in every 2msec)
     }
     B_Task_Ptr = &Task_GroupB1;
 }
-Uint16 g_HFCTAVG =0;
-unsigned long g_TempHFCT = 0;
-Uint16 g_SensTXCNT = 0;
-Uint8 g_failCNT = 0;
-Uint8 SendCnt = 10;
+
 interrupt void ISR_CpuTimer0(void) // 1msec
 {
 
     resultsIndex=0;
     CpuTimer0.InterruptCount++;
 
-    AFD_SensorMain();
 
-    unsigned char CrcTemp = 0;
-    //                    SciaRegs.SCIFFTX.bit.SCIFFENA = 0;
-//    g_uTXQueueCounter = GetTXSensorDataCount();
-    while(GetTXSensorDataCount())
-    {
-        GetTXSensorData(&g_stTXData_out);
-
-
-        if(g_ConnectTestSW==1 && g_SendStart == 1)
-        {
-
-            if(SciaRegs.SCICTL2.bit.TXRDY == 1)
-            {
-                if(g_SendValueCount >= g_SensTXCNT)
-                {
-                    if(SendCnt>0)
-                    {
-                        g_TempHFCT += (unsigned long)g_stTXData_out.m_uHFCT;
-                        SendCnt--;
-                    }
-                    else
-                    {
-                        SendCnt=10;
-                        g_HFCTAVG = (unsigned long)g_TempHFCT / (unsigned long)SendCnt;
-                        g_TempHFCT = 0;
-                    }
-
-                    g_failCNT=0;
-                    sTempDataA[0] = 0xfe;
-                    sTempDataA[1] = 0x10;
-                    sTempDataA[2] = (g_stTXData_out.m_uShunt >> 8);
-                    sTempDataA[3] = g_stTXData_out.m_uShunt;
-                    sTempDataA[4] = (g_stTXData_out.m_uHFCT >> 8);
-                    sTempDataA[5] = g_stTXData_out.m_uHFCT;
-                    sTempDataA[6] = ((0xff00 & g_HFCTAVG) >> 8);
-                    sTempDataA[7] = 0x00ff & g_HFCTAVG;
-                    sTempDataA[8] = (g_SensTXCNT>> 8);
-                    sTempDataA[9] = g_SensTXCNT;
-                    sTempDataA[10] = 0x00;
-                    sTempDataA[11] = 0xa5;
-
-                    g_SensTXCNT++;
-                }
-                else
-                {
-                    g_SendStart = 0;
-                    g_SensTXCNT=0;
-                    sTempDataA[0] = 0xfe;
-                    sTempDataA[1] = 0x07;
-                    sTempDataA[2] = 0x00;
-                    sTempDataA[3] = 0x00;
-                    sTempDataA[4] = 0x00;
-                    sTempDataA[5] = 0x00;
-                    sTempDataA[6] = 0x00;
-                    sTempDataA[7] = 0x00;
-                    sTempDataA[8] = 0x00;
-                    sTempDataA[9] = 0x00;
-                    sTempDataA[10] = 0x00;
-                    sTempDataA[11] = 0xa5;
-                }
-
-                CrcTemp = CRC8_BlockChecksum(sTempDataA,12);
-                int i;
-
-                for(i = 0; i < 12; i++)
-                {
-                  sDataA[i]= 0x00ff & sTempDataA[i];
-                }
-
-                sDataA[10]= 0x00ff & CrcTemp;
-
-                SCI_writeCharArray(SCIA_BASE, sDataA, 12);
-    //            SCI_writeCharArray(SCIA_BASE, sDataA, 8);
-
-            }
-            else
-            {
-                g_failCNT++;
-
-            }
-        }
-        else
-        {
-            GetTXSensorData(&g_stTXData_out);
-
-        }
-        SciaRegs.SCIFFTX.bit.SCIFFENA = 1;
-
-    }
     // Acknowledge this interrupt to receive more interrupts from group 1
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
 
@@ -519,25 +507,20 @@ void SendHanShaking(void)
     sTempDataA[2] = 0x00;
     sTempDataA[3] = 0x00;
     sTempDataA[4] = 0x00;
-    sTempDataA[5] = 0x00;
-    sTempDataA[6] = 0x00;
-    sTempDataA[7] = 0x00;
-    sTempDataA[8] = 0x00;
-    sTempDataA[9] = 0x00;
-    sTempDataA[10] = 0x00;
-    sTempDataA[11] = 0xa5;
+    sTempDataA[5] = 0xa5;
 
-    CrcTemp = CRC8_BlockChecksum(sTempDataA,12);
+
+//    CrcTemp = CRC8_BlockChecksum(sTempDataA,12);
     int i;
-
-    for(i = 0; i < 12; i++)
+//
+    for(i = 0; i < 6; i++)
     {
         sDataA[i]= 0x00ff & sTempDataA[i];
     }
+//
+//    sDataA[10]= 0x00ff & CrcTemp;
 
-    sDataA[10]= 0x00ff & CrcTemp;
-
-    SCI_writeCharArray(SCIA_BASE, sDataA, 12);
+    SCI_writeCharArray(SCIA_BASE, sDataA, 6);
 
 }
 
@@ -552,37 +535,39 @@ void SendCloseCom(void)
     sTempDataA[2] = 0x00;
     sTempDataA[3] = 0x00;
     sTempDataA[4] = 0x00;
-    sTempDataA[5] = 0x00;
-    sTempDataA[6] = 0x00;
-    sTempDataA[7] = 0x00;
-    sTempDataA[8] = 0x00;
-    sTempDataA[9] = 0x00;
-    sTempDataA[10] = 0x00;
-    sTempDataA[11] = 0xa5;
+    sTempDataA[5] = 0xa5;
 
-    CrcTemp = CRC8_BlockChecksum(sTempDataA,12);
+
+//    CrcTemp = CRC8_BlockChecksum(sTempDataA,12);
     int i;
 
-    for(i = 0; i < 12; i++)
+    for(i = 0; i < 6; i++)
     {
         sDataA[i]= 0x00ff & sTempDataA[i];
     }
+//
+//    sDataA[10]= 0x00ff & CrcTemp;
 
-    sDataA[10]= 0x00ff & CrcTemp;
-
-    SCI_writeCharArray(SCIA_BASE, sDataA, 12);
+    SCI_writeCharArray(SCIA_BASE, sDataA, 6);
 
 }
 
 
 void DataSendModeStart(Uint8 count)
 {
-    g_SendValueCount = (Uint16)count * 12000;
+    g_SendValueCount = (Uint16)count * 5000;
     g_SendStart = 1;
 
 }
 
-
+void DataSendWithTriggerModeStart(Uint8 count)
+{
+    g_SendValueCount = (Uint16)count * 5000;
+    g_SendStart = 1;
+    g_TriggerMode = 1;
+    g_trigger_on = 0;
+    AdcTestCnt=0;
+}
 
 Uint8 g_remainCNT = 0;
 Uint8 g_remainValue[12];
@@ -631,7 +616,7 @@ interrupt void sciaRXFIFOISR(void)
                   DataSendModeStart(g_testTemp[count+3]);
                   break;
               case 0x03:
-      //            DataSendWithTriggerModeStart(rDataA[3]);
+                  DataSendWithTriggerModeStart(rDataA[3]);
                   break;
               case 0x04:
       //            DataSendWithTriggerModeStop();
@@ -675,7 +660,7 @@ interrupt void sciaTXFIFOISR(void)
 {
     uint16_t i;
 
-//    SCI_writeCharArray(SCIA_BASE, sDataA, 8);
+    SCI_writeCharArray(SCIA_BASE, sDataA, 8);
 
     //
     // Increment send data for next cycle
@@ -698,8 +683,9 @@ interrupt void sciaTXFIFOISR(void)
 //
 //  ADC 입력 신호
 //
-
+//
 //**************************************************************************************
+Uint8 adcSampleCNT = 0;
 interrupt void adca1_isr(void)
 {
 
@@ -717,12 +703,52 @@ interrupt void adca1_isr(void)
 //        AdcaResults[resultsIndex][1] = AdcaResultRegs.ADCRESULT1;   //P3
 //        AdcaResults[resultsIndex][2] = AdcaResultRegs.ADCRESULT2;   //P4
 //        resultsIndex++;
-
+//    FAULT_LED_TOGGLE();
         g_stADCData.m_uShunt = AdcaResultRegs.ADCRESULT0;
         g_stADCData.m_uHFCT = AdcaResultRegs.ADCRESULT2;
 
-    SetADCSensorData(&g_stADCData);
-    SetTXSensorData(&g_stADCData);
+
+    adcSampleCNT++;
+    if(adcSampleCNT>19)
+    {
+            FAULT_LED_TOGGLE();
+        adcSampleCNT=0;
+//    SetADCSensorData(&g_stADCData);
+        if(GPIO_readPin(0) && g_trigger_on==0)
+        {
+            g_trigger_on=1;
+        }
+
+
+        if(g_TriggerMode == 1)
+        {
+            if(g_SendStart == 1 && g_trigger_on == 1)
+            {
+
+
+                    g_stADCData.m_Count = AdcTestCnt;
+                    SetTXSensorData(&g_stADCData);
+
+                    AdcTestCnt++;
+
+            }
+
+        }
+        else
+        {
+
+            if(g_SendStart == 1)
+            {
+
+                    FAULT_LED_TOGGLE();
+                    g_stADCData.m_Count = AdcTestCnt;
+                    SetTXSensorData(&g_stADCData);
+                    AdcTestCnt++;
+            }
+        }
+
+
+    }
 
     if(RESULTS_BUFFER_SIZE <= resultsIndex)
     {
@@ -742,6 +768,7 @@ interrupt void adca1_isr(void)
     }
 
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
+    //현재 프로세스 1.5us
 }
 
 
