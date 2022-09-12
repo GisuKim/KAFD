@@ -97,8 +97,8 @@ ADC_DATA_STRUCT_DEF g_stTXData_out;
 Uint8 g_ConnectTestSW = 0;
 // Send data for SCI-A
 //
-uint16_t sDataA[24];
-uint8_t sTempDataA[24];
+uint16_t sDataA[34];
+uint8_t sTempDataA[34];
 Uint16 g_HFCTAVG =0;
 unsigned long g_TempHFCT = 0;
 Uint32 g_SensTXCNT = 0;
@@ -317,18 +317,25 @@ void Task_GroupA1(void)         // (executed in every 20 msec)
     A_Task_Ptr = &Task_GroupA1;
 
 }
+
+float32  g_DataWindow[50][2] = { 0, };
+Uint8 WindowCount = 0;
 void Task_GroupB1(void)         // (executed in every 1msec)
 {
     g_auVTimer1[1]++;
-
-    Uint8 i = 0;
+    float32 sumVal = 0;
+    Uint8 i,j;
+    Uint8 floatTemp[4] = {0,};
+    union {
+        float32 fValue;
+        Uint16 bytes[4];
+    } avgValue;
 //        AFD_SensorMain();
 //
-        unsigned char CrcTemp = 0;
+//        unsigned char CrcTemp = 0;
 
-        g_uTXQueueCounter = GetTXSensorDataCount();
 
-        if(GetTXSensorDataCount() > 9)
+        if(GetTXSensorDataCount() > 5)
         {
             if(SciaRegs.SCICTL2.bit.TXRDY == 1 && SciaRegs.SCICTL2.bit.TXEMPTY == 1 )
             {
@@ -338,31 +345,49 @@ void Task_GroupB1(void)         // (executed in every 1msec)
 
                     if(g_SendValueCount > g_SensTXCNT)
                     {
-//                        if(SendCnt>0)
-//                        {
-//                            g_TempHFCT += (unsigned long)g_stTXData_out.m_uHFCT;
-//                            SendCnt--;
-//                        }
-//                        else
-//                        {
-//                            SendCnt=10;
-//                            g_HFCTAVG = (unsigned long)g_TempHFCT / (unsigned long)SendCnt;
-//                            g_TempHFCT = 0;
-//                        }
 
                         g_failCNT=0;
 
                         sTempDataA[0] = 0xfe;
                         sTempDataA[1] = 0x10;
-                        for(i = 1; i < 11 ; i++)
+                        for(i = 0; i < 5 ; i++)
                         {
                             GetTXSensorData(&g_stTXData_out);
-                            sTempDataA[i*2] =  (g_stTXData_out.m_uHFCT >> 8);
-                            sTempDataA[(i*2)+1] = g_stTXData_out.m_uHFCT;
+                            sTempDataA[(i*6)+2] =  (g_stTXData_out.m_uHFCT >> 8);
+                            sTempDataA[(i*6)+3] = g_stTXData_out.m_uHFCT;
+
+                            sumVal = 0;
+                            if(WindowCount < 50)
+                            {
+                                g_DataWindow[WindowCount][0] = (float32)g_stTXData_out.m_uHFCT - (float32)1967.0;
+
+                                WindowCount++;
+                                sumVal=0;
+                            }
+                            else
+                            {
+                                for(j=0;j<49;j++)
+                                {
+                                    g_DataWindow[j][0]=g_DataWindow[j+1][0];
+                                    sumVal += fabs(g_DataWindow[j][0]);
+                                }
+                                g_DataWindow[49][0] = (float32)g_stTXData_out.m_uHFCT - (float32)1967.0;
+                                sumVal += fabs(g_DataWindow[49][0]);
+                            }
+
+                            avgValue.fValue = -1.0 / sumVal;
+
+//                            avgValue.fValue = 0.1 * (float)i; // 시험용 코드
+
+                            sTempDataA[(i*6)+4] = (avgValue.bytes[1] >> 8) & 0x00ff ;
+                            sTempDataA[(i*6)+5] = avgValue.bytes[1] & 0x00ff;
+                            sTempDataA[(i*6)+6] = (avgValue.bytes[0] >> 8) & 0x00ff ;
+                            sTempDataA[(i*6)+7] = avgValue.bytes[0] & 0x00ff;
+
                         }
 
-                        sTempDataA[22] = 0x00ff & (g_SensTXCNT % 256);
-                        sTempDataA[23] = 0xa5;
+                        sTempDataA[32] = 0x00ff & (g_SensTXCNT % 256);
+                        sTempDataA[33] = 0xa5;
 
                         g_SensTXCNT++;
                     }
@@ -372,53 +397,32 @@ void Task_GroupB1(void)         // (executed in every 1msec)
                         g_SensTXCNT=0;
                         sTempDataA[0] = 0xfe;
                         sTempDataA[1] = 0x07;
-                        for(i = 2; i < 22 ; i++)
+                        for(i = 2; i < 32 ; i++)
                         {
 
                             sTempDataA[i] =  0x00;
 
                         }
-                        sTempDataA[22] = 0x00;
-                        sTempDataA[23] = 0xa5;
+                        sTempDataA[32] = 0x00;
+                        sTempDataA[33] = 0xa5;
 
                     }
 
 //                    CrcTemp = CRC8_BlockChecksum(sTempDataA,6);
-//
-                    int i;
 
-                    for(i = 0; i < 24; i++)
+                    for(i = 0; i < 34; i++)
                     {
                       sDataA[i]= 0x00ff & sTempDataA[i];
                     }
 //
 //                    sDataA[10]= 0x00ff & CrcTemp;
-                    SCI_writeCharArray(SCIA_BASE, sDataA, 24);
-        //            SCI_writeCharArray(SCIA_BASE, sDataA, 8);
+                    SCI_writeCharArray(SCIA_BASE, sDataA, 34);
 
                 }
-//                else
-//                {
-//                    g_failCNT++;
-//
-//                }
 
-
-//                    SciaRegs.SCIFFTX.bit.SCIFFENA = 0;
-
-//            SciaRegs.SCIFFTX.bit.SCIFFENA = 1;
 
             }
         }
-//    DSP_SCI_TXEN_ON();
-//  scia_xmit(0x5a);
-//    CSU_Sensor_main();
-//    CSU_StateManagement_main();
-
-
-
-//    DSP_SCI_TXEN_OFF();
-
 
     B_Task_Ptr = &Task_GroupB2;
 }
@@ -500,25 +504,25 @@ void SendHanShaking(void)
 
     sTempDataA[0] = 0xfe;
     sTempDataA[1] = 0x01;
-    for(i = 2; i < 22 ; i++)
+    for(i = 2; i < 32 ; i++)
     {
         sTempDataA[i] =  0x00;
 
     }
-    sTempDataA[22] = 0x00;
-    sTempDataA[23] = 0xa5;
+    sTempDataA[32] = 0x00;
+    sTempDataA[33] = 0xa5;
 
 
 //    CrcTemp = CRC8_BlockChecksum(sTempDataA,12);
 //
-    for(i = 0; i < 24; i++)
+    for(i = 0; i < 34; i++)
     {
         sDataA[i]= 0x00ff & sTempDataA[i];
     }
 //
 //    sDataA[10]= 0x00ff & CrcTemp;
 
-    SCI_writeCharArray(SCIA_BASE, sDataA, 24);
+    SCI_writeCharArray(SCIA_BASE, sDataA, 34);
 
 }
 
@@ -531,25 +535,25 @@ void SendCloseCom(void)
 
     sTempDataA[0] = 0xfe;
     sTempDataA[1] = 0x05;
-    for(i = 2; i < 22 ; i++)
+    for(i = 2; i < 32 ; i++)
     {
         sTempDataA[i] =  0x00;
 
     }
-    sTempDataA[22] = 0x00;
-    sTempDataA[23] = 0xa5;
+    sTempDataA[32] = 0x00;
+    sTempDataA[33] = 0xa5;
 
 
 //    CrcTemp = CRC8_BlockChecksum(sTempDataA,12);
 
-    for(i = 0; i < 24; i++)
+    for(i = 0; i < 34; i++)
     {
         sDataA[i]= 0x00ff & sTempDataA[i];
     }
 //
 //    sDataA[10]= 0x00ff & CrcTemp;
 
-    SCI_writeCharArray(SCIA_BASE, sDataA, 24);
+    SCI_writeCharArray(SCIA_BASE, sDataA, 34);
 
 }
 
@@ -710,12 +714,12 @@ interrupt void adca1_isr(void)
 
 
     adcSampleCNT++;
-    if(adcSampleCNT>9)
+    if(adcSampleCNT>19)
     {
             FAULT_LED_TOGGLE();
         adcSampleCNT=0;
 //    SetADCSensorData(&g_stADCData);
-        if(GPIO_readPin(0) && g_trigger_on==0)
+        if(GPIO_readPin(0) == 0 && g_trigger_on==0)
         {
             g_trigger_on=1;
         }
@@ -741,7 +745,7 @@ interrupt void adca1_isr(void)
             if(g_SendStart == 1)
             {
 
-                    FAULT_LED_TOGGLE();
+//                    FAULT_LED_TOGGLE();
                     g_stADCData.m_Count = AdcTestCnt;
                     SetTXSensorData(&g_stADCData);
                     AdcTestCnt++;

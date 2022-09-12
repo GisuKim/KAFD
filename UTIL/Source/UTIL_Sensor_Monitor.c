@@ -12,43 +12,43 @@ ARRAY_QUEUE_def g_stTXDataQueue =ARRAY_QUEUE_DEFAULTS;   /* Queue of Sensor Data
 
 Uint16 g_uSensorQueueCounter = 0;
 
-float32  g_DataWindow[60][2] = { 0, };
+//float32  g_DataWindow[60][2] = { 0, };
 
 ADC_DATA_STRUCT_DEF g_stADCData_out;
 
 SENSOR_DATA_STRUCT_DEF g_stSensorData_out;
 Uint8 SensCNT = 0;
-Uint8 WindowCount = 0;
+//Uint8 WindowCount = 0;
 
 void AFD_SensorMain(void)
 {
-    int i = 0;
-    g_uSensorQueueCounter = GetADCSensorDataCount();
-    if(GetADCSensorDataCount())
-    {
-        GetADCSensorData(&g_stADCData_out);
+//    int i = 0;
+//    g_uSensorQueueCounter = GetADCSensorDataCount();
+//    if(GetADCSensorDataCount())
+//    {
+//        GetADCSensorData(&g_stADCData_out);
+//
+//        ConversionAdcData(&g_stADCData_out,&g_stSensorData_out);
+//
+//        if(WindowCount < 60)
+//        {
+//            g_DataWindow[WindowCount][0]=g_stSensorData_out.m_fHFCT;
+//            g_DataWindow[WindowCount][1]=g_stSensorData_out.m_fShunt;
+//            WindowCount++;
+//        }
+//        else
+//        {
+//            for(i=0;i<59;i++)
+//            {
+//                g_DataWindow[i][0]=g_DataWindow[i+1][0];
+//                g_DataWindow[i][1]=g_DataWindow[i+1][1];
+//            }
+//            g_DataWindow[59][0]=g_stSensorData_out.m_fHFCT;
+//            g_DataWindow[59][1]=g_stSensorData_out.m_fShunt;
+//        }
 
-        ConversionAdcData(&g_stADCData_out,&g_stSensorData_out);
 
-        if(WindowCount < 60)
-        {
-            g_DataWindow[WindowCount][0]=g_stSensorData_out.m_fHFCT;
-            g_DataWindow[WindowCount][1]=g_stSensorData_out.m_fShunt;
-            WindowCount++;
-        }
-        else
-        {
-            for(i=0;i<59;i++)
-            {
-                g_DataWindow[i][0]=g_DataWindow[i+1][0];
-                g_DataWindow[i][1]=g_DataWindow[i+1][1];
-            }
-            g_DataWindow[59][0]=g_stSensorData_out.m_fHFCT;
-            g_DataWindow[59][1]=g_stSensorData_out.m_fShunt;
-        }
-
-
-    }
+//    }
 
 
 
